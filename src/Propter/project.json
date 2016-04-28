@@ -1,15 +1,24 @@
 ﻿{
-    "version": "1.0.0-alpha1",
-    "description": "Propter Hoc - logical activity correlation for .NET Core",
+    "version": "1.0.0-alpha1", 
+    "title": "Propter Hoc",
+    "summary": "Propter Hoc causality toolkit",
+    "description": "Propter Hoc is a causality toolkit for .NET Core / ASP.NET MVC Core",
     "authors": [
         "tintoy@tintoy.io"
     ],
+    "copyright": "Copyright © Adam Friedman 2016",
     "owners": [
         "tintoy@tintoy.io"
     ],
-    "tags": [ "" ],
-    "projectUrl": "",
-    "licenseUrl": "",
+    "tags": [
+        "Causality",
+        "Activity",
+        "Correlation",
+        "Propter",
+        "Hoc"
+    ],
+    "projectUrl": "https://github.com/tintoy/PropterHoc",
+    "licenseUrl": "https://raw.githubusercontent.com/tintoy/PropterHoc/development/r1.0/LICENSE",
 
     "tooling": {
         "defaultNamespace": "Propter"

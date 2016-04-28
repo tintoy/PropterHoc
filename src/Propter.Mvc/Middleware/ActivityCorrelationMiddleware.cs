@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNet.Builder;
 using Microsoft.AspNet.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -65,38 +66,56 @@ namespace Propter.Mvc.Middleware
 		{
 			if (context == null)
 				throw new ArgumentNullException(nameof(context));
-
-			// Get or create the request activity Id.
-			Guid requestActivityId =
-					GetActivityIdFromHeader(context)			// First try for activity Id from header.
-					??
-					GetActivityIdFromTraceIdentifier(context)	// Fall back to ASP.NET's activity Id.
-					??
-					Guid.NewGuid();                             // Otherwise, create a new activity.
-
-			context.TraceIdentifier = requestActivityId.ToString();
-
-			// Set up the correlation manager for the current request.
-			ActivityCorrelationManager requestCorrelationManager = context.RequestServices.GetService<ActivityCorrelationManager>();
-
-			ActivityCorrelationManager previousCorrelationManager = ActivityCorrelationManager.Current;
-			if (_setCurrentCorrelationManager)
-				ActivityCorrelationManager.Current = requestCorrelationManager;
-
-			try
+			
+			Guid requestActivityId = GetOrCreateActivityId(context);
+			using (CreateActivityLogScope(context, requestActivityId))
 			{
-				using (requestCorrelationManager.BeginActivity(requestActivityId))
+				// Override current activity Id.
+				context.TraceIdentifier = requestActivityId.ToString();
+
+				// Set up the correlation manager for the current request.
+				ActivityCorrelationManager previousCorrelationManager = ActivityCorrelationManager.Current;
+				ActivityCorrelationManager requestCorrelationManager = context.RequestServices.GetRequiredService<ActivityCorrelationManager>();
+				if (_setCurrentCorrelationManager)
+					ActivityCorrelationManager.Current = requestCorrelationManager;
+
+				try
 				{
-					await _nextMiddleware(context);
+					using (requestCorrelationManager.BeginActivity(requestActivityId))
+					{
+						await _nextMiddleware(context);
+					}
+				}
+				finally
+				{
+					if (_setCurrentCorrelationManager)
+						ActivityCorrelationManager.Current = previousCorrelationManager;
+
+					context.Response.Headers[_headerName] = requestActivityId.ToString();
 				}
 			}
-			finally
-			{
-				if (_setCurrentCorrelationManager)
-					ActivityCorrelationManager.Current = previousCorrelationManager;
+		}
 
-				context.Response.Headers[_headerName] = requestActivityId.ToString();
-			}
+		/// <summary>
+		///		Get or create an activity Id for the current request.
+		/// </summary>
+		/// <param name="context">
+		///		The <see cref="HttpContext"/> for the current request.
+		/// </param>
+		/// <returns>
+		///		The activity Id.
+		/// </returns>
+		Guid GetOrCreateActivityId(HttpContext context)
+		{
+			if (context == null)
+				throw new ArgumentNullException(nameof(context));
+
+			return
+				GetActivityIdFromHeader(context)			// First try for activity Id from header.
+				??
+				GetActivityIdFromTraceIdentifier(context)	// Fall back to ASP.NET's activity Id.
+				??
+				Guid.NewGuid();                             // Otherwise, create a new activity.
 		}
 
 		/// <summary>
@@ -143,6 +162,32 @@ namespace Propter.Mvc.Middleware
 				return activityId;
 			
 			return null;
+		}
+
+		/// <summary>
+		///		Create a logger scope for the specified logical activity.
+		/// </summary>
+		/// <param name="context">
+		///		The <see cref="HttpContext"/> for the current request.
+		/// </param>
+		/// <param name="activityId">
+		///		The current logical activity Id.
+		/// </param>
+		/// <returns>
+		///		An <see cref="IDisposable"/> representing the logger scope, or <c>null</c> if logging support is not enabled.
+		/// </returns>
+		IDisposable CreateActivityLogScope(HttpContext context, Guid activityId)
+		{
+			if (context == null)
+				throw new ArgumentNullException(nameof(context));
+
+			if (activityId == Guid.Empty)
+				throw new ArgumentException("GUID cannot be empty: 'activityId'.", nameof(activityId));
+
+			// Log scopes are (by convention) shared across all loggers of a given type, so this will be propagated to all registered loggers that are scope-aware.
+			ILogger<ActivityCorrelationMiddleware> requestLogger = context.RequestServices.GetService<ILogger<ActivityCorrelationMiddleware>>();
+
+			return requestLogger?.BeginScope("{ActivityId}", activityId);
 		}
 	}
 }
