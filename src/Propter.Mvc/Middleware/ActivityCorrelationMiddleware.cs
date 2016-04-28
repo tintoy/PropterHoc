@@ -66,35 +66,35 @@ namespace Propter.Mvc.Middleware
 			if (context == null)
 				throw new ArgumentNullException(nameof(context));
 
+			// Get or create the request activity Id.
+			Guid requestActivityId =
+					GetActivityIdFromHeader(context)			// First try for activity Id from header.
+					??
+					GetActivityIdFromTraceIdentifier(context)	// Fall back to ASP.NET's activity Id.
+					??
+					Guid.NewGuid();                             // Otherwise, create a new activity.
+
+			context.TraceIdentifier = requestActivityId.ToString();
+
 			// Set up the correlation manager for the current request.
 			ActivityCorrelationManager requestCorrelationManager = context.RequestServices.GetService<ActivityCorrelationManager>();
 
 			ActivityCorrelationManager previousCorrelationManager = ActivityCorrelationManager.Current;
 			if (_setCurrentCorrelationManager)
-			{
 				ActivityCorrelationManager.Current = requestCorrelationManager;
-			}
-
-			// Get or create the request activity Id.
-			Guid requestActivityId =
-				GetActivityIdFromHeader(context)			// First try for activity Id from header.
-				??
-				GetActivityIdFromTraceIdentifier(context)	// Fall back to ASP.NET's activity Id.
-				??
-				Guid.NewGuid();								// Otherwise, create a new activity.
-
-			requestCorrelationManager.ActivityId = requestActivityId;
-			context.TraceIdentifier = requestActivityId.ToString();
 
 			try
 			{
-				await _nextMiddleware(context);
+				using (requestCorrelationManager.BeginActivity(requestActivityId))
+				{
+					await _nextMiddleware(context);
+				}
 			}
 			finally
 			{
 				if (_setCurrentCorrelationManager)
 					ActivityCorrelationManager.Current = previousCorrelationManager;
-					
+
 				context.Response.Headers[_headerName] = requestActivityId.ToString();
 			}
 		}

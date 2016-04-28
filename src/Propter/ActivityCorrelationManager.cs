@@ -102,34 +102,124 @@ namespace Propter
 		}
 
 		/// <summary>
-		///		The Id of the activity (if any) tracked by the current <see cref="ActivityCorrelationManager"/>.
+		///		Ensure that there is a current <see cref="ActivityCorrelationManager"/>.
 		/// </summary>
-		public static Guid? CurrentActivityId
+		/// <returns>
+		///		The <see cref="ActivityCorrelationManager"/>.
+		/// </returns>
+		public static ActivityCorrelationManager EnsureCurrent()
 		{
-			get
+			lock (_staticStateLock)
 			{
-				lock (_staticStateLock)
-				{
-					ActivityCorrelationManager current = Current;
-					if (current == null)
-						return null;
-
-					return current.ActivityId;
-				}
+				return Current ?? (Current = new ActivityCorrelationManager());
 			}
-			set
-			{
-				lock (_staticStateLock)
-				{
-					ActivityCorrelationManager current = Current;
-					if (current == null)
-					{
-						current = new ActivityCorrelationManager();
-						Current = current;
-					}
+		}
 
-					current.ActivityId = value;
-				}
+		/// <summary>
+		///		Start a logical activity.
+		/// </summary>
+		/// <param name="activityId">
+		///		An optional logical activity Id (if <c>null</c> or not specified, a new activity Id will be generated).
+		/// </param>
+		/// <returns>
+		///		An <see cref="ActivityScope"/> representing the logical activity.
+		/// 
+		///		When the scope is disposed the previous activity (if any) will be restored.
+		/// </returns>
+		public ActivityScope BeginActivity(Guid? activityId = null)
+		{
+			ActivityCorrelationManager correlationManager = EnsureCurrent();
+
+			return new ActivityScope(correlationManager,
+				activityId: activityId ?? Guid.NewGuid()
+			);
+		}
+
+		/// <summary>
+		///		Start a logical activity if one is not already in progress.
+		/// </summary>
+		/// <returns>
+		///		An <see cref="ActivityScope"/> representing the logical activity.
+		/// 
+		///		When the scope is disposed the previous activity (if any) will be restored.
+		/// </returns>
+		public ActivityScope RequireActivity()
+		{
+			ActivityCorrelationManager correlationManager = EnsureCurrent();
+
+			return new ActivityScope(correlationManager,
+				activityId: correlationManager.ActivityId ?? Guid.NewGuid()
+			);
+		}
+
+		/// <summary>
+		///		Suppress the current logical activity (if any).
+		/// </summary>
+		/// <returns>
+		///		An <see cref="ActivityScope"/> representing the suppression of the current logical activity.
+		/// 
+		///		When the scope is disposed the previous activity (if any) will be restored.
+		/// </returns>
+		public ActivityScope SuppressActivity()
+		{
+			ActivityCorrelationManager correlationManager = EnsureCurrent();
+
+			return new ActivityScope(correlationManager,
+				activityId: null
+			);
+		}
+
+		/// <summary>
+		///		Get the Id of the activity (if any) tracked by the current <see cref="ActivityCorrelationManager"/>.
+		/// </summary>
+		/// <returns>
+		///		The activity Id, or <c>null</c> if there is no current activity (or current <see cref="ActivityCorrelationManager"/>).
+		/// </returns>
+		public static Guid? GetCurrentActivityId()
+		{
+			lock (_staticStateLock)
+			{
+				ActivityCorrelationManager current = Current;
+				if (current == null)
+					return null;
+
+				return current.ActivityId;
+			}
+		}
+
+		/// <summary>
+		///		Get the Id of the activity (if any) tracked by the current <see cref="ActivityCorrelationManager"/>.
+		/// </summary>
+		/// <returns>
+		///		The activity Id, or <c>null</c> if there is no current activity (or current <see cref="ActivityCorrelationManager"/>).
+		/// </returns>
+		public static void SetCurrentActivityId(Guid? activityId)
+		{
+			if (activityId == Guid.Empty)
+				throw new ArgumentException("GUID cannot be empty: 'activityId'.", nameof(activityId));
+
+			lock (_staticStateLock)
+			{
+				ActivityCorrelationManager current = Current;
+				if (Current == null)
+					Current = current = new ActivityCorrelationManager();
+
+				current.ActivityId = activityId;
+			}
+		}
+
+		/// <summary>
+		///		Clear the current activity Id (if any).
+		/// </summary>
+		public static void ClearCurrentActivityId()
+		{
+			lock (_staticStateLock)
+			{
+				ActivityCorrelationManager current = Current;
+				if (Current == null)
+					return;
+
+				current.ActivityId = null;
 			}
 		}
 	}
